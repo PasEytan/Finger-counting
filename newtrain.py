@@ -1,13 +1,13 @@
 import os
 import random
 from PIL import Image
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from collections import defaultdict
 
 # --- 1) PARAMETERS ---
 
@@ -69,11 +69,23 @@ def index_dataset(root_dir):
 
 
 def split_dataset(samples, train_ratio=TRAIN_SPLIT, seed=RANDOM_SEED):
-    random.Random(seed).shuffle(samples)
-    split_idx = int(len(samples) * train_ratio)
-    train_samples = samples[:split_idx]
-    test_samples = samples[split_idx:]
+    # group all variants of the same base image so they don't cross splits
+    groups = defaultdict(list)
+    for path, label in samples:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        base = stem.split('_')[0]  # e.g., "0" from "0_flip_rot0_blur5_2"
+        groups[(label, base)].append((path, label))
+
+    rng = random.Random(seed)
+    keys = list(groups.keys()); rng.shuffle(keys)
+    split_idx = int(len(keys) * train_ratio)
+    train_keys = set(keys[:split_idx])
+
+    train_samples, test_samples = [], []
+    for k, items in groups.items():
+        (train_samples if k in train_keys else test_samples).extend(items)
     return train_samples, test_samples
+
 
 
 # --- 3) DATASET CLASS ---
@@ -100,15 +112,23 @@ class FingerDataset(Dataset):
 class FingerCNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-        self.pool  = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-
-        # after 3 pools: 128 -> 64 -> 32 -> 16
-        self.fc1 = nn.Linear(128 * 16 * 16, 128)
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.pool  = nn.MaxPool2d(2, 2)      # <-- this was missing
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.fc1   = nn.Linear(128 * 16 * 16, 128)
         self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, NUM_CLASSES)
+        self.fc2   = nn.Linear(128, NUM_CLASSES)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 128 * 16 * 16)
+        x = self.dropout(F.relu(self.fc1(x)))
+        return self.fc2(x)
+
+
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))  # 128->64
@@ -125,20 +145,21 @@ class FingerCNN(nn.Module):
 def get_transforms():
     train_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply([transforms.ColorJitter(brightness=0.2, contrast=0.2)], p=0.5),
+        transforms.RandomGrayscale(p=0.3),
+        transforms.RandomAffine(degrees=15, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                             std=[0.5, 0.5, 0.5]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
-
     test_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                             std=[0.5, 0.5, 0.5]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
     return train_transform, test_transform
+
 
 
 def get_dataloaders(root_dir, num_workers=NUM_WORKERS):
@@ -196,18 +217,23 @@ def main():
     model = FingerCNN().to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-    print("Starting training...")
+
+    best_acc = 0.0
+    best_path = "finger_counter_torch_best.pth"
+
+    print("Starting training.")
     for epoch in range(EPOCHS):
         model.train()
         running_loss = 0.0
 
         for i, (inputs, labels) in enumerate(train_loader):
             inputs, labels = inputs.to(device), labels.to(device)
-
             optimizer.zero_grad()
+
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
@@ -221,12 +247,16 @@ def main():
                 running_loss = 0.0
 
         val_acc = evaluate(model, test_loader, device)
-        print(f"*** Epoch {epoch+1} Validation Accuracy: {val_acc:.2f}% ***")
+        print(f"Epoch {epoch+1}: val_acc={val_acc:.2f}%  lr={scheduler.get_last_lr()[0]:.6f}")
 
-    print("Finished Training!")
-    torch.save(model.state_dict(), "finger_counter_torch.pth")
-    print("Model saved to 'finger_counter_torch.pth'")
+        scheduler.step()
 
+        if val_acc > best_acc:
+            best_acc = val_acc
+            torch.save(model.state_dict(), best_path)
+            print(f"✓ Saved new best model to {best_path}")
 
+    print(f"Finished Training! Best validation accuracy: {best_acc:.2f}%")
+       
 if __name__ == "__main__":
     main()
