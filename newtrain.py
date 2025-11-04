@@ -11,7 +11,7 @@ from collections import defaultdict
 
 # --- 1) PARAMETERS ---
 
-DATASET_DIR = r'new_dataset'   # folder that has subfolders 0,1,2,3,4,5
+DATASET_DIR = r'new_dataset/new_dataset'   
 IMG_SIZE = 128
 BATCH_SIZE = 32
 NUM_CLASSES = 6   # 0..5
@@ -144,21 +144,21 @@ class FingerCNN(nn.Module):
 
 def get_transforms():
     train_transform = transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.RandomResizedCrop(IMG_SIZE, scale=(0.6, 1.0)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([transforms.ColorJitter(brightness=0.2, contrast=0.2)], p=0.5),
-        transforms.RandomGrayscale(p=0.3),
-        transforms.RandomAffine(degrees=15, translate=(0.05, 0.05), scale=(0.95, 1.05)),
-        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                             std=[0.5, 0.5, 0.5]),
     ])
+
     test_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                             std=[0.5, 0.5, 0.5]),
     ])
     return train_transform, test_transform
+
 
 
 
