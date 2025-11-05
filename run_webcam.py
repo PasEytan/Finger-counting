@@ -41,7 +41,7 @@ def draw_label(frame, label, conf):
     cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                 1.0, (0, 255, 0), 2, cv2.LINE_AA)
 
-def main(weights_path="finger_counter_torch.pth", cam_index=0, use_cuda=True):
+def main(weights_path="finger_counter_torch_best.pth", cam_index=0, use_cuda=True):
     device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
     model = FingerCNN().to(device)
     model.load_state_dict(torch.load(weights_path, map_location=device))

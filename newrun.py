@@ -36,9 +36,7 @@ class FingerCNN(nn.Module):
         x = self.dropout(F.relu(self.fc1(x)))
         return self.fc2(x)
 
-# --------------------
-# Preprocess (must mirror test-time transforms in train.py)
-# --------------------
+
 preprocess = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((IMG_SIZE, IMG_SIZE)),

@@ -7,11 +7,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from collections import defaultdict
 
 # --- 1) PARAMETERS ---
 
-DATASET_DIR = r'new_dataset/new_dataset'   
+DATASET_DIR = r'data/'   
 IMG_SIZE = 128
 BATCH_SIZE = 32
 NUM_CLASSES = 6   # 0..5
@@ -67,7 +66,12 @@ def index_dataset(root_dir):
 
     return samples
 
-
+def split_dataset(samples, train_ratio=TRAIN_SPLIT, seed=RANDOM_SEED):
+    rng = random.Random(seed)
+    rng.shuffle(samples)
+    split_idx = int(len(samples) * train_ratio)
+    return samples[:split_idx], samples[split_idx:]
+"""
 def split_dataset(samples, train_ratio=TRAIN_SPLIT, seed=RANDOM_SEED):
     # group all variants of the same base image so they don't cross splits
     groups = defaultdict(list)
@@ -86,7 +90,7 @@ def split_dataset(samples, train_ratio=TRAIN_SPLIT, seed=RANDOM_SEED):
         (train_samples if k in train_keys else test_samples).extend(items)
     return train_samples, test_samples
 
-
+"""
 
 # --- 3) DATASET CLASS ---
 
