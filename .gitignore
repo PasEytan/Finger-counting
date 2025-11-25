@@ -6,4 +6,6 @@ data
 fingers
 realtime_fingers_model
 fingers.zip
-fingers.zip
+__pycache__
+media.py
+FingerCounting_OpenCV-DeepLearning
