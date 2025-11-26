@@ -1,0 +1,5 @@
+python-opencv
+keras
+numpy
+tensorflow
+matplotlib

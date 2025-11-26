@@ -1,161 +1,202 @@
 import tensorflow as tf
 import numpy as np
 import cv2
-import os
 
-# --- Global Variables ---
-background = None
-accumulated_weight = 0.5
-num_frames = 0
 
-# ROI Coordinates (Green Box)
-roi_top = 20
-roi_bottom = 300
-roi_right = 300
-roi_left = 600
-
-# --- Load Model Robustly ---
-script_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(script_dir, 'C:/Users/weill/OneDrive/Documents/github/Finger-counting/Finger-counting/realtime_fingers_detection.keras')
-
-try:
-    model = tf.keras.models.load_model(model_path)
-    print("Model loaded successfully.")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    exit()
-
+# Bouderies for the model
+ROI_TOP = 20
+ROI_BOTTOM = 300
+ROI_RIGHT = 300
+ROI_LEFT = 600
 IMAGE_SIZE = 128
+ACCUMULATED_WEIGHT = 0.5
 
-class FingerClassifier(object):
-    def __init__(self, model_object):
-        self.detect = model_object
+# Model itself
+MODEL_PATH_REL = './realtime_fingers_detection.keras'
 
-    def get_classification(self, img):
-        img = img.reshape(1, *img.shape)
-        img = tf.constant(img, dtype=float)
-        
-        # Check pixel count
-        unique, counts = np.unique(img, return_counts=True)
-        
-        # DEBUG: Print what the model sees
-        if len(counts) > 1:
-            print(f"Hand Pixels: {counts[1]}", end="/r") # Print count to track issues
-        else:
-            print("Hand Pixels: 0 (Image is empty)", end="/r")
+class HandSegmenter:
+    """
+    Performing the Mask. 
+    Removes the background by taking an original background
+    frame and substracting every new frame with it.
+    """
+    def __init__(self, accum_weight=0.5):
+        self.background = None
+        self.accum_weight = accum_weight
 
-        # If image is empty or hand is too small
-        if (len(counts) <= 1 or counts[1] < 2000): 
-            return -1
-        
-        output = self.detect(img)
-        return np.argmax(output)
+    def update_background(self, frame):
+        """Assigning background for substraction."""
+        if self.background is None:
+            self.background = frame.copy().astype("float")
+            return
+        cv2.accumulateWeighted(frame, self.background, self.accum_weight)
 
-obj = FingerClassifier(model)
+    def segment(self, frame, threshold=25):
+        """
+        Substracting the old saved background to evert new frame and makes 
+        an countours every new blob that should be part of the hand. 
+        """
+        if self.background is None:
+            return None
 
-# --- Helper Functions ---
-def calc_accum_avg(frame, accumulated_weight):
-    global background
-    if background is None:
-        background = frame.copy().astype("float")
-        return None
-    cv2.accumulateWeighted(frame, background, accumulated_weight)
+        # Calculate absolute difference between background and current frame
+        diff = cv2.absdiff(self.background.astype("uint8"), frame)
+        _, thresholded = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)
 
-def segment(frame, threshold=25):
-    global background
-    
-    diff = cv2.absdiff(background.astype("uint8"), frame)
-    _, thresholded = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)
+        # Find contours
+        contours, _ = cv2.findContours(thresholded.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    contours, _ = cv2.findContours(thresholded.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if len(contours) == 0:
+            return None
 
-    if len(contours) == 0:
-        return None
-    else:
-        # Get the largest contour (the hand)
+        # Assume largest contour is the hand
         hand_segment = max(contours, key=cv2.contourArea)
-        
-        # Filter out small noise (adjust 1000 if needed)
+
+        # Some cv2 filtering
         if cv2.contourArea(hand_segment) < 1000:
             return None
-            
+
         return (thresholded, hand_segment)
-
-def prepare_for_model(mask_crop):
-    # 1. Resize
-    img = cv2.resize(mask_crop, (IMAGE_SIZE, IMAGE_SIZE))
     
-    # 2. FORCE BINARY (The Fix)
-    # Resizing creates grey edges (e.g. 150, 200). We threshold again to force 0 or 255.
-    _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
-    
-    # 3. Normalize to 0.0 and 1.0
-    img = img / 255.0
-    
-    # 4. Reshape
-    img = np.reshape(img, (IMAGE_SIZE, IMAGE_SIZE, 1))
-    return img
+    def reset(self):
+        """Resets the background copy."""
+        self.background = None
 
-# --- Main Loop ---
-cam = cv2.VideoCapture(0)
 
-while True:
-    ret, frame = cam.read()
-    if not ret: break
-    
-    frame = cv2.flip(frame, 1)
-    frame_copy = frame.copy()
+class FingerModel:
+    """
+    Using the model to use on the processed area to 
+    make a prediction. 
+    """
+    def __init__(self, model_path):
+        self.model = tf.keras.models.load_model(model_path)
+        self.image_size = IMAGE_SIZE
 
-    # Extract ROI
-    roi = frame[roi_top:roi_bottom, roi_right:roi_left]
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+    def preprocess(self, mask_crop):
+        """Prepares the mask for the neural network."""
+        # 1. Resize
+        img = cv2.resize(mask_crop, (self.image_size, self.image_size))
+        
+        # 2. cv2 cleanup of bad edges and resizing 
+        _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
+        
+        # 3. Transform all pixel values from a 0-255 range to 0-1 float range
+        img = img / 255.0
+        
+        # 4. Reshape for model input (BatchSize, Height, Width, Channels)
+        img = np.reshape(img, (1, self.image_size, self.image_size, 1))
+        return img
 
-    # Calibration Phase
-    if num_frames < 60:
-        calc_accum_avg(gray, accumulated_weight)
-        cv2.putText(frame_copy, "WAIT! CALIBRATING...", (80, 400), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
-    else:
-        # Hand Detection Phase
-        hand = segment(gray)
+    def predict(self, roi_image):
+        """
+        Takes a raw ROI image, checks pixel density, and returns prediction.
+        Returns: class_index (int) or -1 (if empty/invalid)
+        """
+        # Preprocess
+        processed_img = self.preprocess(roi_image)
+        
+  
+        # Counting the quantity of white pixels
+        unique, counts = np.unique(processed_img > 0, return_counts=True)
+        
+        # Determine pixel count
+        pixel_count = 0
+        if len(counts) > 1:
+            pixel_count = counts[1]
 
-        if hand is not None:
-            thresholded, hand_segment = hand
-            
-            # Draw the hand contour (Visual feedback)
-            cv2.drawContours(frame_copy, [hand_segment + (roi_right, roi_top)], -1, (255, 0, 0), 1)
-            
-            # Show the mask
-            cv2.imshow("What the AI Sees", thresholded)
-            
-            # Predict
-            model_input = prepare_for_model(thresholded)
-            prediction = obj.get_classification(model_input)
-            
-            # Display Prediction
+        # Threshhold for what reasonably constitues as a hand
+        if pixel_count < 2000:
+            return -1
+
+        output = self.model(tf.constant(processed_img, dtype=float))
+        return np.argmax(output)
+
+
+class FingerCounterApp:
+    """
+    Runs the main program and manages all ui elements.  
+    """
+    def __init__(self):
+        self.cap = cv2.VideoCapture(0)
+        self.segmenter = HandSegmenter(accum_weight=ACCUMULATED_WEIGHT)
+        self.predictor = FingerModel(model_path=MODEL_PATH_REL)
+        
+        self.num_frames = 0
+        self.is_running = True
+
+    def draw_ui(self, frame, prediction, hand_contour):
+        """Handles all drawing (text, boxes, contours) on the frame."""
+        # Draw the box being cropped 
+        cv2.rectangle(frame, (ROI_LEFT, ROI_TOP), (ROI_RIGHT, ROI_BOTTOM), (0, 255, 0), 2)
+
+        # Drawing necessary text 
+        if prediction is not None:
             text = str(prediction) if prediction != -1 else "No Hand"
             color = (0, 255, 0) if prediction != -1 else (0, 0, 255)
-            
-            cv2.putText(frame_copy, text, (70, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, text, (70, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
         else:
-            cv2.putText(frame_copy, "No Hand Detected", (70, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
-            # Clear the mask window if no hand
-            cv2.imshow("What the AI Sees", np.zeros((roi.shape[0], roi.shape[1]), dtype='uint8'))
+            cv2.putText(frame, "WAIT! CALIBRATING...", (80, 400), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
-    # Draw ROI Box
-    cv2.rectangle(frame_copy, (roi_left, roi_top), (roi_right, roi_bottom), (0, 255, 0), 2)
-    
-    num_frames += 1
-    cv2.imshow("Finger Count", frame_copy)
+        # Draw Hand Contour
+        if hand_contour is not None:
+             cv2.drawContours(frame, [hand_contour + (ROI_RIGHT, ROI_TOP)], -1, (255, 0, 0), 1)
 
-    # Controls
-    k = cv2.waitKey(1) & 0xFF
-    if k == 27: # ESC to quit
-        break
-    elif k == ord('r'): # Press 'r' to recalibrate background
-        background = None
-        num_frames = 0
-        print("/nRecalibrating...")
+    def run(self):
+        while self.is_running:
+            ret, frame = self.cap.read()
+            if not ret: break
+            
+            frame = cv2.flip(frame, 1)
+            frame_copy = frame.copy()
 
-cam.release()
-cv2.destroyAllWindows()
+            # 1. Extract region of interest 
+            roi = frame[ROI_TOP:ROI_BOTTOM, ROI_RIGHT:ROI_LEFT]
+            gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            gray_roi = cv2.GaussianBlur(gray_roi, (7, 7), 0)
+
+            prediction = None
+            hand_contour = None
+            thresholded_view = np.zeros((roi.shape[0], roi.shape[1]), dtype='uint8')
+
+            # 2. Calibrate or predict
+            if self.num_frames < 60:
+                self.segmenter.update_background(gray_roi)
+            else:
+                # Attempt to find hand
+                hand_data = self.segmenter.segment(gray_roi)
+                
+                if hand_data is not None:
+                    thresholded_view, hand_contour = hand_data
+                    
+                    # Predict using the model
+                    prediction = self.predictor.predict(thresholded_view)
+                else:
+                    # No hand detected
+                    prediction = -1 
+
+            # 3. Showing webcam feed
+            cv2.imshow("What the AI sees", thresholded_view)
+            self.draw_ui(frame_copy, prediction, hand_contour)
+            cv2.imshow("FingerCount", frame_copy)
+            
+            self.num_frames += 1
+
+            # Keyboard inputs
+            self.keyinput()
+
+        # Cleanup
+        self.cap.release()
+        cv2.destroyAllWindows()
+
+    def keyinput(self):
+        k = cv2.waitKey(1) & 0xFF
+        if k == 27: # ESC
+            self.is_running = False
+        elif k == ord('r'):
+            self.segmenter.reset()
+            self.num_frames = 0
+            print("\nRecalibrating...")
+
+if __name__ == "__main__":
+    app = FingerCounterApp()
+    app.run()
