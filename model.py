@@ -142,6 +142,7 @@ class FingerCounterApp:
              cv2.drawContours(frame, [hand_contour + (ROI_RIGHT, ROI_TOP)], -1, (255, 0, 0), 1)
 
     def run(self):
+        # While loop of the camera feed and AI predictions. 
         while self.is_running:
             ret, frame = self.cap.read()
             if not ret: break
@@ -189,9 +190,12 @@ class FingerCounterApp:
         cv2.destroyAllWindows()
 
     def keyinput(self):
+        # Exciting program
         k = cv2.waitKey(1) & 0xFF
         if k == 27: # ESC
             self.is_running = False
+
+        # Restarting the background calibration 
         elif k == ord('r'):
             self.segmenter.reset()
             self.num_frames = 0

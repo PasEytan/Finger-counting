@@ -1,5 +1,6 @@
-python-opencv
+opencv-python
 keras
 numpy
 tensorflow
 matplotlib
+
