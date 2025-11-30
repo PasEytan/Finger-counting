@@ -35,8 +35,24 @@ python test.py
 ### Training 
 If you want to train a model yourself and make some minor tweaks to the actual training, you can do that through the ```training.ipynb``` file.
 
-But before that, you would need to get a dataset [2](#References)
+But before that, you would need to get a dataset. I used Kaggle's "finger" dataset[[2](#References)] to train my model. In the ```train.ipynb``` file, just be sure to have your training data and testing data sgemented into the right folders and fix the formatting of your dataset to your desired resolution. 
 
+> **NOTE:** Some of the libraries do not play nice with online notebooks, so if you plan on using a service like Google Colab or Databricks, there might be so tweaks needed to get the training to work. 
+
+### Utilization
+
+After installing all the dependencies, running the program with the pretrained file is as easy as having a webcam already connected to your device and running the command:
+```bash
+python model.py
+```
+
+This operation will use the already existing pretrained model, ```realtime_fingers_detection.keras```. 
+ 
+### Pretained Model
+
+In the repository, you will see a file called ```realtime_fingers_detection.keras```. This is the model that is used by default in the ```model.py``` file. It was trained for 30 Epochs and is set to be about 99.97 accurate in its predictions.
+
+![alt text](Untitled.png)
 
 ## References
 1. [Medium article](https://medium.com/@guptakgk14/creating-a-custom-cnn-for-real-time-finger-detection-947222db71b0) for training by Gaurang Gupta
