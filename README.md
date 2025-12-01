@@ -76,7 +76,11 @@ The actual running of the file uses a mask that it applies to the webcam feed to
 
 When you want to exit the program, simply press the `ESC` to exit the program. 
 
-<video controls src="info/HandDetection.mp4" title="Model In Use"></video>
+
+
+https://github.com/user-attachments/assets/6a04c0b1-7c2b-4aeb-ae67-1eadeb84e8f6
+
+
 
 ### Pretained Model
 
