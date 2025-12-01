@@ -80,15 +80,13 @@ When you want to exit the program, simply press the `ESC` to exit the program.
 
 https://github.com/user-attachments/assets/6a04c0b1-7c2b-4aeb-ae67-1eadeb84e8f6
 
-<img width="1311" height="547" alt="training_graph" src="https://github.com/user-attachments/assets/0801052b-9439-4f91-b1fe-1207af2568c8" />
-
-
 
 ### Pretained Model
 
 In the repository, you will see a file called ```realtime_fingers_detection.keras```. This is the model that is used by default in the ```model.py``` file. It was trained for 30 Epochs and is set to be about 99.97% accurate in its predictions.
 
 
+<img width="1311" height="547" alt="training_graph" src="https://github.com/user-attachments/assets/0801052b-9439-4f91-b1fe-1207af2568c8" />
 
 ## References
 1. [Medium article](https://medium.com/@guptakgk14/creating-a-custom-cnn-for-real-time-finger-detection-947222db71b0) for training by Gaurang Gupta
