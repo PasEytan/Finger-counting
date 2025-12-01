@@ -76,12 +76,13 @@ The actual running of the file uses a mask that it applies to the webcam feed to
 
 When you want to exit the program, simply press the `ESC` to exit the program. 
 
+<video controls src="info/HandDetection.mp4" title="Model In Use"></video>
 
 ### Pretained Model
 
 In the repository, you will see a file called ```realtime_fingers_detection.keras```. This is the model that is used by default in the ```model.py``` file. It was trained for 30 Epochs and is set to be about 99.97% accurate in its predictions.
 
-![alt text](training_graph.png)
+![alt text](info/training_graph.png)
 
 ## References
 1. [Medium article](https://medium.com/@guptakgk14/creating-a-custom-cnn-for-real-time-finger-detection-947222db71b0) for training by Gaurang Gupta
